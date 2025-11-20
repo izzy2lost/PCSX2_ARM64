@@ -22,7 +22,7 @@ static bool mvuNeedsFPCRUpdate(mV)
 // Generates the code for entering/exit recompiled blocks
 void mVUdispatcherAB(mV)
 {
-    mVU.startFunct = armStartBlock();
+    mVU.startFunct = armGetCurrentCodePointer();
 	{
 //		xScopedStackFrame frame(false, true);
         armBeginStackFrame();
@@ -125,8 +125,6 @@ void mVUdispatcherAB(mV)
 //	xRET();
     armAsm->Ret();
 
-    mVU.prog.x86start = armEndBlock();
-
 	Perf::any.Register(mVU.startFunct, static_cast<u32>(mVU.prog.x86start - mVU.startFunct),
 		mVU.index ? "VU1StartFunc" : "VU0StartFunc");
 }
@@ -134,7 +132,7 @@ void mVUdispatcherAB(mV)
 // Generates the code for resuming/exit xgkick
 void mVUdispatcherCD(mV)
 {
-    mVU.startFunctXG = armStartBlock();
+    mVU.startFunctXG = armGetCurrentCodePointer();
 	{
 //		xScopedStackFrame frame(false, true);
         armBeginStackFrame();
@@ -183,69 +181,64 @@ void mVUdispatcherCD(mV)
 //	xRET();
     armAsm->Ret();
 
-    mVU.prog.x86start = armEndBlock();
-
 	Perf::any.Register(mVU.startFunctXG, static_cast<u32>(mVU.prog.x86start - mVU.startFunctXG),
 		mVU.index ? "VU1StartFuncXG" : "VU0StartFuncXG");
 }
 
 static void mVUGenerateWaitMTVU(mV)
 {
-    mVU.waitMTVU = armStartBlock();
+    mVU.waitMTVU = armGetCurrentCodePointer();
 
-//    int i;
-//    for (i = 0; i < static_cast<int>(iREGCNT_GPR); ++i)
-//    {
-//        if (!armIsCallerSaved(i) || i == 4)
-//            continue;
-//
-//        // T1 often contains the address we're loading when waiting for VU1.
-//        // T2 isn't used until afterwards, so don't bother saving it.
-//        if (i == gprT2.GetCode())
-//            continue;
-//
-//        armAsm->Push(a64::xzr, a64::XRegister(i));
-//    }
-    ////
-//    for (i = 0; i < static_cast<int>(iREGCNT_XMM); ++i)
-//    {
-//        if (!armIsCallerSavedXmm(i))
-//            continue;
-//
-//        armAsm->Push(a64::xzr, a64::DRegister(i));
-//    }
+    int i;
+    for (i = 0; i < static_cast<int>(iREGCNT_GPR); ++i)
+    {
+        if (!armIsCallerSaved(i) || i == 4)
+            continue;
+
+        // T1 often contains the address we're loading when waiting for VU1.
+        // T2 isn't used until afterwards, so don't bother saving it.
+        if (i == gprT2.GetCode())
+            continue;
+
+        armAsm->Push(a64::xzr, a64::XRegister(i));
+    }
+    //
+    for (i = 0; i < static_cast<int>(iREGCNT_XMM); ++i)
+    {
+        if (!armIsCallerSavedXmm(i))
+            continue;
+
+        armAsm->Push(a64::d31, a64::DRegister(i));
+    }
 
     ////
 //	xFastCall((void*)mVUwaitMTVU);
     armAsm->Push(a64::xzr, a64::lr);
-    armAsm->Ldr(RXVIXLSCRATCH, (uptr)mVUwaitMTVU);
-    armAsm->Blr(RXVIXLSCRATCH);
+    armEmitCall((void*)mVUwaitMTVU);
     armAsm->Pop(a64::lr, a64::xzr);
     ////
 
-//    for (i = static_cast<int>(iREGCNT_XMM - 1); i >= 0; --i)
-//    {
-//        if (!armIsCallerSavedXmm(i))
-//            continue;
-//
-//        armAsm->Pop(a64::DRegister(i), a64::xzr);
-//    }
-    ////
-//    for (i = static_cast<int>(iREGCNT_GPR - 1); i >= 0; --i)
-//    {
-//        if (!armIsCallerSaved(i) || i == 4)
-//            continue;
-//
-//        if (i == gprT2.GetCode())
-//            continue;
-//
-//        armAsm->Pop(a64::XRegister(i), a64::xzr);
-//    }
+    for (i = static_cast<int>(iREGCNT_XMM - 1); i >= 0; --i)
+    {
+        if (!armIsCallerSavedXmm(i))
+            continue;
+
+        armAsm->Pop(a64::DRegister(i), a64::d31);
+    }
+    //
+    for (i = static_cast<int>(iREGCNT_GPR - 1); i >= 0; --i)
+    {
+        if (!armIsCallerSaved(i) || i == 4)
+            continue;
+
+        if (i == gprT2.GetCode())
+            continue;
+
+        armAsm->Pop(a64::XRegister(i), a64::xzr);
+    }
 
 //	xRET();
     armAsm->Ret();
-
-    mVU.prog.x86start = armEndBlock();
 
 	Perf::any.Register(mVU.waitMTVU, static_cast<u32>(mVU.prog.x86start - mVU.waitMTVU),
 		mVU.index ? "VU1WaitMTVU" : "VU0WaitMTVU");
@@ -253,7 +246,7 @@ static void mVUGenerateWaitMTVU(mV)
 
 static void mVUGenerateCopyPipelineState(mV)
 {
-    mVU.copyPLState = armStartBlock();
+    mVU.copyPLState = armGetCurrentCodePointer();
     {
         auto mop_rax = a64::MemOperand(RAX);
         auto mop_lpState = PTR_MVU(microVU[mVU.index].prog.lpState);
@@ -288,8 +281,6 @@ static void mVUGenerateCopyPipelineState(mV)
 //	xRET();
     armAsm->Ret();
 
-    mVU.prog.x86start = armEndBlock();
-
 	Perf::any.Register(mVU.copyPLState, static_cast<u32>(mVU.prog.x86start - mVU.copyPLState),
 		mVU.index ? "VU1CopyPLState" : "VU0CopyPLState");
 }
@@ -302,7 +293,7 @@ static void mVUGenerateCopyPipelineState(mV)
 // Note: Structs must be 16-byte aligned! (GCC doesn't guarantee this)
 static void mVUGenerateCompareState(mV)
 {
-    mVU.compareStateF = armStartBlock();
+    mVU.compareStateF = armGetCurrentCodePointer();
     {
         auto mop_arg1reg = a64::MemOperand(RCX);
         auto mop_arg2reg = a64::MemOperand(RDX);
@@ -362,8 +353,6 @@ static void mVUGenerateCompareState(mV)
 
 //	xRET();
     armAsm->Ret();
-
-    mVU.prog.x86start = armEndBlock();
 }
 
 
@@ -385,8 +374,6 @@ _mVUt void* mVUexecute(u32 startPC, u32 cycles)
 	mVU.totalCycles = cycles;
 
 //	xSetPtr(mVU.prog.x86ptr); // Set x86ptr to where last program left off
-    armSetAsmPtr(mVU.prog.x86ptr, vuIndex ? HostMemoryMap::mVU1recSize : HostMemoryMap::mVU0recSize, nullptr);
-    mVU.prog.x86ptr = armStartBlock();
 
 	return mVUsearchProg<vuIndex>(startPC & vuLimit, (uptr)&mVU.prog.lpState); // Find and set correct program
 }
@@ -400,7 +387,6 @@ _mVUt void mVUcleanUp()
 	microVU& mVU = mVUx;
 
 //	mVU.prog.x86ptr = x86Ptr;
-    mVU.prog.x86ptr = armEndBlock();
 
 	if ((mVU.prog.x86ptr < mVU.prog.x86start) || (mVU.prog.x86ptr >= mVU.prog.x86end))
 	{
